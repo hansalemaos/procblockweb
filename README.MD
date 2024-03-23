@@ -1,242 +1,167 @@
-import subprocess
-import os
-import tempfile
-import re
-from rlogfi import (
-    PowerShellDetachedInteractive,
-    escapecmdlist,
-    invisibledict,
-    touch,
-    get_short_path_name,
-    errwrite,
+# Interactive subprocess Instances for cmd.exe, powershell.exe, adb.exe, bash.exe without deadlocks - pure Python, no dependencies
+
+## Easy, bidirectional communication with various subprocesses such as PowerShell, ADB, Command Prompt (Cmd), and Bash.
+
+### pip install interactiveshellsubproc
+
+### Tested against MSYS2 / powershell/cmd.dexe -> Windows 10 / Bluestacks / Python 3.11 / Windows 10
+
+## Advantages
+
+### Interactivity:
+Allows bidirectional communication with subprocesses, enabling command execution and retrieval of outputs.
+
+### Versatility:
+Supports various subprocess types, including PowerShell, ADB, Cmd, and Bash, catering to different use cases and environments. New classes for any other shell can be easily derived from the base class.
+
+### Error Handling:
+Implements error handling mechanisms such as automatic process restart when stdin breaks (BrokenPipe) and configurable restart policies, enhancing robustness.
+
+### configurability:
+Offers a range of configurable options such as daemon mode, output printing settings, and restart behavior, providing flexibility in usage.
+
+### Ease of Use:
+Provides a straightforward interface for sending commands to subprocesses and retrieving outputs, simplifying interaction with external processes.
+
+### Very low (almost no) deadlock danger: It very rarely deadlocks.
+If you are sending normal shell commands, your instance will probably never deadlock. However, when you write, for example, a shell script and forget a curly brace or a bracket at the end and execute the half-backed command, or you open AWK or cat, and they start reading from stdin and not from a file or a PIPE because you didn't pass it, then chances are very high that the console will deadlock.
+
+```py
+from interactiveshellsubproc import (
+    SubProcessInteractivePowerShell,
+    SubProcessInteractiveAdb,
+    SubProcessInteractiveCmd,
+    SubProcessInteractiveBash,
 )
-import shutil
-import time
-import os
 
-enablefirewallcmd = "netsh", "advfirewall", "set", "currentprofile", "state", "on"
-disablefirewallcmd = "netsh", "advfirewall", "set", "currentprofile", "state", "off"
-
-
-def get_tmpfile(suffix=".bat"):
-    tfp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    filename = tfp.name
-    filename = os.path.normpath(filename)
-    tfp.close()
-    touch(filename)
-    return filename
-
-
-def check_firewall_status():
-    p = subprocess.run(
-        ["netsh", "advfirewall", "show", "currentprofile"],
-        capture_output=True,
-        **invisibledict,
+if __name__ == "__main__":
+    powershellinstance = SubProcessInteractivePowerShell(
+        daemon=True,
+        restart_when_error=True,
+        restart_tries=5,
+        sleep_after_reconnection_attempt=5,
+        print_stderr=False,
+        print_stdout=False,
+        return_error=True,
     )
 
-    stdo, stde = p.stdout.splitlines(), p.stderr.splitlines()
-    stode = [
-        h.strip().split(maxsplit=1)[-1].lower() for h in stdo if h.startswith(b"State")
-    ]
-    allok = [h for h in stode if h == b"on"]
-    allnotok = [h for h in stode if h != b"on"]
-    firewalloff = False
-    if allnotok or not allok:
-        firewalloff = True
-    return firewalloff
+    stdout, stderr, exception = powershellinstance.sendcommand("ls")
+    # Out[10]: [b"lsbabababa : The term 'lsbabababa' is not recognized as the name of a cmdlet, function,....
+    stdout, stderr, exception = powershellinstance.sendcommand("lsbabababa")
+    # [b"lsbabababa : The term 'lsbabababa' is not recognized as the name of a cmdlet, function, script
 
-
-def disable_internet_and_run(
-    exepath: str, args: tuple = ()
-) -> tuple[str, str, str, str, int]:
-    """
-    Disables the internet and runs the specified executable with the given arguments.
-
-    :param exepath: The path to the executable to run.
-    :type exepath: str
-    :param args: The arguments to pass to the executable (default: ()).
-    :type args: tuple
-    :return: A tuple containing the new username, new password, new display name 1, new display name 2, and the process ID of the executed process.
-    :rtype: tuple[str, str, str, str, int]
-    """
-
-    firewalloff = check_firewall_status()
-    if firewalloff:
-        subprocess.run(enablefirewallcmd, **invisibledict)
-
-    timestampnow = str(int(time.time())).split(".")[0]
-    new_username = f"NO_{timestampnow}"
-    new_password = "NOINTERNET"
-    new_display_name1 = f"IO_{timestampnow}"
-    new_display_name2 = f"II_{timestampnow}"
-
-    args = []
-    savebafi = get_tmpfile(".ps1")
-    piddata = get_tmpfile(".txt")
-    pse = shutil.which("powershell.exe")
-    workingdir = os.sep.join(re.split(r"[\\/]+", exepath)[:-1])
-    exepathshort = get_short_path_name(exepath)
-    workingdirshort = get_short_path_name(workingdir)
-    observerscriptmp = get_tmpfile(suffix=".ps1")
-    observerscriptmpshort = get_short_path_name(observerscriptmp)
-
-    if args:
-        argsstring = " -ArgumentList " + escapecmdlist(args) + " "
-    else:
-        argsstring = " "
-    scri = rf"""$myuserpassword="{new_password}"
-$myusername="{new_username}"
-$myuserpassword  = ConvertTo-SecureString $myuserpassword -AsPlainText -Force
-
-New-LocalUser -Name $myusername -Password $myuserpassword 
-$credential = New-Object System.Management.Automation.PSCredential($myusername,  $myuserpassword )
-
-
-function Get-FirewallLocalUserSddl {{
-    param(
-        [string[]]$UserName
+    adbinstance = SubProcessInteractiveAdb(
+        adb_path=r"C:\ProgramData\chocolatey\lib\adb\tools\platform-tools\adb.exe",
+        device_serial="127.0.0.1:5845",
+        convert_to_83=True,
+        daemon=True,
+        restart_when_error=True,
+        restart_tries=5,
+        sleep_after_reconnection_attempt=5,
+        print_stderr=False,
+        print_stdout=False,
+        return_error=True,
     )
+    # In [1]: adbinstance.sendcommand("ls")
+    # Out[1]: [[b'acct\n', b'apex\n', b'bin\n', b'boot\n', b'bugreports\n', b...
 
-    $SDDL = 'D:{{0}}'
+    # In [2]: adbinstance.stdin.close() # closing the pipe to simulate a problem
 
-    $ACEs = foreach ($Name in $UserName) {{
-        try {{
-            $LocalUser = Get-LocalUser -Name $UserName -ErrorAction Stop
-            '(A;;CC;;;{{0}})' -f $LocalUser.Sid.Value
-        }}
-        catch {{
-            Write-Warning "Local user '$Username' not found"
-            continue
-        }}
-    }}
-    return $SDDL -f ($ACEs -join '')
-}}
+    # In [3]: adbinstance.sendcommand("ls")
+    # ------------------------------------------
+    # Traceback (most recent call last):
+    #   File "C:\ProgramData\anaconda3\envs\a0\checkpowers.py", line 411, in sendcommand
+    #     self._proc.stdin.write((cmd + f"\n{self.finish_command}\n").encode())
+    # ValueError: write to closed file
+    # ------------------------------------------
+    # Restarting ...
+    # Out[3]: [[], [], None] # the output of the first command after the restart is mostly not complete
 
-New-NetFirewallRule -DisplayName "{new_display_name1}" -LocalUser (Get-FirewallLocalUserSddl '{new_username}') -Direction Outbound -Action Block -Program "{exepathshort}"
-New-NetFirewallRule -DisplayName "{new_display_name2}" -LocalUser (Get-FirewallLocalUserSddl '{new_username}') -Direction Inbound -Action Block -Program "{exepathshort}"
+    # In [4]: adbinstance.sendcommand("ls") # After the first one, everything is like before
+    # Out[4]: [[b'acct\n', b'apex\n', b'bin\n', b'boot\n', b'bugreports\n'...
 
-
-    """
-
-    with open(savebafi, "w", encoding="utf-8") as f:
-        f.write(scri)
-
-    pse_short = get_short_path_name(pse)
-    interactivepwsh = PowerShellDetachedInteractive(
-        executable=r"cmd.exe",
-        logfolder=os.environ.get("TMP") or os.environ.get("TEMP"),
-        working_dir=workingdirshort,
-        execution_policy="Unrestricted",
-        arguments=["echo"],
-        WhatIf="",
-        Verb="",
-        UseNewEnvironment="",
-        Wait="",
-        stdinadd="",
-        WindowStyle="Hidden",
+    cmdinstance = SubProcessInteractiveCmd(
+        daemon=True,
+        restart_when_error=True,
+        restart_tries=5,
+        sleep_after_reconnection_attempt=5,
+        print_stderr=False,
+        print_stdout=False,
+        return_error=True,
     )
+    # In [6]: cmdinstance.sendcommand("ls")
+    # Out[6]: [[b'Code.VisualElementsManifest.xml\n', b'Code.exe\n', b'LICENSES.chromium.html\n',
 
-    startproc = get_tmpfile(".ps1")
-    os.remove(piddata)
-    time.sleep(2)
-    stdout, stderr = interactivepwsh.sendcommand(f"{pse} {savebafi}")
-    tmpfilestdout = get_tmpfile(".txt")
-    tmpfilestderr = get_tmpfile(".txt")
-    tmpfilestdout_short = get_short_path_name(tmpfilestdout)
-    tmpfilestderr_short = get_short_path_name(tmpfilestderr)
+    # In [7]:  cmdinstance.stdin.close() # provoking a broken pipe
 
-    with open(startproc, "w", encoding="utf-8") as f:
-        f.write(
-            f"""$myuserpassword="{new_password}"
-    $myusername="{new_username}"
-    $myuserpassword  = ConvertTo-SecureString $myuserpassword -AsPlainText -Force
+    # All subclasses of SubProcessInteractive reconnect automatically
+    # In [8]: cmdinstance.sendcommand("ls")
+    # ------------------------------------------
+    # Traceback (most recent call last):
+    #   File "C:\ProgramData\anaconda3\envs\a0\checkpowers.py", line 411, in sendcommand
+    #     self._proc.stdin.write((cmd + f"\n{self.finish_command}\n").encode())
+    # ValueError: write to closed file
+    # ------------------------------------------
+    # Restarting ...
+    # Out[8]: [[], [], None]
 
-    New-LocalUser -Name $myusername -Password $myuserpassword 
-    $credential = New-Object System.Management.Automation.PSCredential($myusername,  $myuserpassword )
-    Start-Process -FilePath "{exepathshort}" -Credential $credential  -RedirectStandardOutput {tmpfilestdout_short} -RedirectStandardError {tmpfilestderr_short} -WorkingDirectory "{workingdirshort}"{argsstring}-PassThru -WindowStyle Normal | Format-List"""
-        )
-    stdout, stderr = interactivepwsh.sendcommand(f"{pse} {startproc} > {piddata}")
+    # In [9]: cmdinstance.sendcommand("ls")
+    # Out[9]: [[b'Code.VisualElementsManifest.xml\n', b'Code.exe\n',
 
-    while not os.path.exists(piddata):
-        time.sleep(1)
-    time.sleep(2)
-    while True:
-        try:
-            os.rename(piddata, piddata)
-            break
-        except Exception:
-            time.sleep(3)
-    while True:
-        try:
-            with open(piddata, "r", encoding="utf-8") as f:
-                pidda = f.read()
-                break
-        except Exception:
-            time.sleep(3)
-    processfound = False
-    if re.findall(r"\bId\s+:", pidda):
-        processfound = True
-    pidofproc = 0
-    if processfound:
-        pidofproc = re.split(r"Id\s+:\s*", pidda)[-1].split()[0]
-        checktime = 5
-        adddisablefirewall = " ".join(disablefirewallcmd) if firewalloff else ""
-        observerscript = rf"""$pidToMonitor = {pidofproc}  
-    while ($true) {{
-        $process = Get-Process -Id $pidToMonitor -ErrorAction SilentlyContinue
-
-        if (-not $process) {{
-            Remove-NetFirewallRule -DisplayName "{new_display_name1}"
-            Remove-NetFirewallRule -DisplayName "{new_display_name2}"
-
-            Remove-LocalUser "{new_username}"
-            {adddisablefirewall}
-            break  # Exit the loop once the script has been executed
-        }}
-
-        Start-Sleep -Seconds {checktime}
-    }}
-
-        """
-
-        with open(observerscriptmp, "w", encoding="utf-8") as f:
-            f.write(observerscript)
-
-        interactivepwsh.sendcommand(
-            f"{pse_short} -File {observerscriptmp} -WindowStyle Hidden"
-        )
-        time.sleep(5)
-
-    interactivepwsh.stdout_stoptrigger[0] = True
-    interactivepwsh.stderr_stoptrigger[0] = True
-    time.sleep(5)
-    interactivepwsh.thread_being_executed.killthread()
-    time.sleep(5)
-    try:
-        interactivepwsh._proc.stdin.close()
-    except Exception as ef:
-        errwrite(ef)
-    try:
-        interactivepwsh._proc.stdout.close()
-    except Exception as ef:
-        errwrite(ef)
-
-    try:
-        interactivepwsh._proc.stderr.close()
-    except Exception as ef:
-        errwrite(ef)
-    try:
-        interactivepwsh._proc.wait(timeout=1)
-    except Exception as ef:
-        errwrite(ef)
-    try:
-        interactivepwsh._proc.terminate()
-    except Exception as ef:
-        errwrite(ef)
-    return (
-        new_username,
-        new_password,
-        new_display_name1,
-        new_display_name2,
-        int(pidofproc),
+    bashinstance = SubProcessInteractiveBash(
+        bash_path=r"C:\msys64\usr\bin\bash.exe",
+        convert_to_83=True,
+        daemon=True,
+        restart_when_error=True,
+        restart_tries=5,
+        sleep_after_reconnection_attempt=5,
+        print_stderr=False,
+        print_stdout=False,
+        return_error=True,
     )
+    # In [13]: bashinstance.sendcommand("exit")
+    # ------------------------------------------
+    # Traceback (most recent call last):
+    #   File "C:\ProgramData\anaconda3\envs\a0\checkpowers.py", line 435, in sendcommand
+    #     while True:
+
+    # StopIteration
+    # ------------------------------------------
+    # Out[13]: [[b'XXXXCOMMANDSTARTXXXX\n'], [], StopIteration()]
+
+    # In [14]: bashinstance.sendcommand("ls")
+    # ------------------------------------------
+    # Traceback (most recent call last):
+    #   File "C:\ProgramData\anaconda3\envs\a0\checkpowers.py", line 414, in sendcommand
+    #     self._proc.stdin.write(cmd + b"\n" + self.finish_command_bytes + b"\n")
+    #     ^^^^^^^^^^^^^^^^^^^^^^^^
+    # OSError: [Errno 22] Invalid argument
+    # ------------------------------------------
+    # Restarting ...
+    # Out[14]: [[], [], None]
+
+    # In [15]: bashinstance.sendcommand("ls")
+    # Out[15]: [[b'Code.VisualElementsManifest.xml\n', b'Code.exe\n', b'L
+    #
+    so1, se1, error = powershellinstance.sendcommand("ls")
+    so2, se2, error = adbinstance.sendcommand("ls")
+    so3, se3, error = cmdinstance.sendcommand("ls")
+
+    print(f"{so1,so2,so3=}")
+    print(f"{se1,se2,se3=}")
+
+    so1, se1, error = powershellinstance.sendcommand("lsxx")
+    so2, se2, error = adbinstance.sendcommand("lsxx")
+    so3, se3, error = cmdinstance.sendcommand("lsxx")
+
+    print(f"{so1,so2,so3=}")
+    print(f"{se1,se2,se3=}")
+
+    so3, se3, error = bashinstance.sendcommand("ls")
+    print(f"{so3, se3, error=}")
+
+    psout, pserr, pserror = powershellinstance.sendcommand(
+        "Get-Process | Format-Table *"
+    )
+    print(psout)
+```
