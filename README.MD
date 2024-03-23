@@ -1,167 +1,71 @@
-# Interactive subprocess Instances for cmd.exe, powershell.exe, adb.exe, bash.exe without deadlocks - pure Python, no dependencies
+# Disables internet access temporarily for a specified executable and executes it with certain arguments.
 
-## Easy, bidirectional communication with various subprocesses such as PowerShell, ADB, Command Prompt (Cmd), and Bash.
+## pip install procblockweb
 
-### pip install interactiveshellsubproc
+### Tested against Windows 10 / Python 3.11 / Anaconda
 
-### Tested against MSYS2 / powershell/cmd.dexe -> Windows 10 / Bluestacks / Python 3.11 / Windows 10
 
-## Advantages
+## Needs admin rights!
 
-### Interactivity:
-Allows bidirectional communication with subprocesses, enabling command execution and retrieval of outputs.
+### How does it work?
 
-### Versatility:
-Supports various subprocess types, including PowerShell, ADB, Cmd, and Bash, catering to different use cases and environments. New classes for any other shell can be easily derived from the base class.
+#### Firewall Control:
 
-### Error Handling:
-Implements error handling mechanisms such as automatic process restart when stdin breaks (BrokenPipe) and configurable restart policies, enhancing robustness.
+The script checks the status of the Windows firewall. If it's off, it temporarily enables it before executing the main task.
 
-### configurability:
-Offers a range of configurable options such as daemon mode, output printing settings, and restart behavior, providing flexibility in usage.
 
-### Ease of Use:
-Provides a straightforward interface for sending commands to subprocesses and retrieving outputs, simplifying interaction with external processes.
+#### Execution:
 
-### Very low (almost no) deadlock danger: It very rarely deadlocks.
-If you are sending normal shell commands, your instance will probably never deadlock. However, when you write, for example, a shell script and forget a curly brace or a bracket at the end and execute the half-backed command, or you open AWK or cat, and they start reading from stdin and not from a file or a PIPE because you didn't pass it, then chances are very high that the console will deadlock.
+It generates a temporary PowerShell script to create a local user, block outbound and inbound traffic for a specified executable, and then executes the executable with specific arguments.
+The script monitors the execution of the specified process and cleans up (e.g., removes the added firewall rules, deletes the created local user) after the process finishes. If you don't close the process before shutting down your PC, this won't happen! It won't hurt, but you will end up with a lot of zombie firewall rules.
+    The Python process can be closed after the function returns. The cleanup is done by a background powershell script.
+
+#### Security:
+
+It uses PowerShell to execute tasks, allowing for fine-grained control over system operations.
+The script removes added firewall rules and deletes the created local user after the task is completed, ensuring no residual changes are left behind.
+
+
+#### Flexibility:
+
+The script allows passing arguments to the executed executable and handles both inbound and outbound traffic blocking.
+It uses temporary files and directories for operations, ensuring that the system's integrity is maintained.
+
+
+#### Error Handling:
+
+The script incorporates error handling mechanisms, such as waiting for processes to finish and catching exceptions during cleanup operations.
+
+#### Hidden Execution:
+
+It sets the PowerShell window style to "Hidden" during execution, making the process less conspicuous to users.
+Overall, this script provides a robust way to temporarily disable internet access and execute a specified executable with controlled network access, ensuring security and clean-up afterward. It's particularly useful in scenarios where fine-grained control over network traffic and system operations is required.
+
+
+## Example
 
 ```py
-from interactiveshellsubproc import (
-    SubProcessInteractivePowerShell,
-    SubProcessInteractiveAdb,
-    SubProcessInteractiveCmd,
-    SubProcessInteractiveBash,
+from procblockweb import disable_internet_and_run
+
+(
+    new_username, # firewall dummy data
+    new_password, # firewall dummy data
+    new_display_name1, # firewall dummy data
+    new_display_name2, # firewall dummy data
+    pidofproc, # pid of the process
+) = disable_internet_and_run(
+    exepath=r"C:\Program Files\BlueStacks_nxt\HD-Player.exe",
+    args=("--instance", "Rvc64_26"),
 )
 
-if __name__ == "__main__":
-    powershellinstance = SubProcessInteractivePowerShell(
-        daemon=True,
-        restart_when_error=True,
-        restart_tries=5,
-        sleep_after_reconnection_attempt=5,
-        print_stderr=False,
-        print_stdout=False,
-        return_error=True,
-    )
 
-    stdout, stderr, exception = powershellinstance.sendcommand("ls")
-    # Out[10]: [b"lsbabababa : The term 'lsbabababa' is not recognized as the name of a cmdlet, function,....
-    stdout, stderr, exception = powershellinstance.sendcommand("lsbabababa")
-    # [b"lsbabababa : The term 'lsbabababa' is not recognized as the name of a cmdlet, function, script
-
-    adbinstance = SubProcessInteractiveAdb(
-        adb_path=r"C:\ProgramData\chocolatey\lib\adb\tools\platform-tools\adb.exe",
-        device_serial="127.0.0.1:5845",
-        convert_to_83=True,
-        daemon=True,
-        restart_when_error=True,
-        restart_tries=5,
-        sleep_after_reconnection_attempt=5,
-        print_stderr=False,
-        print_stdout=False,
-        return_error=True,
-    )
-    # In [1]: adbinstance.sendcommand("ls")
-    # Out[1]: [[b'acct\n', b'apex\n', b'bin\n', b'boot\n', b'bugreports\n', b...
-
-    # In [2]: adbinstance.stdin.close() # closing the pipe to simulate a problem
-
-    # In [3]: adbinstance.sendcommand("ls")
-    # ------------------------------------------
-    # Traceback (most recent call last):
-    #   File "C:\ProgramData\anaconda3\envs\a0\checkpowers.py", line 411, in sendcommand
-    #     self._proc.stdin.write((cmd + f"\n{self.finish_command}\n").encode())
-    # ValueError: write to closed file
-    # ------------------------------------------
-    # Restarting ...
-    # Out[3]: [[], [], None] # the output of the first command after the restart is mostly not complete
-
-    # In [4]: adbinstance.sendcommand("ls") # After the first one, everything is like before
-    # Out[4]: [[b'acct\n', b'apex\n', b'bin\n', b'boot\n', b'bugreports\n'...
-
-    cmdinstance = SubProcessInteractiveCmd(
-        daemon=True,
-        restart_when_error=True,
-        restart_tries=5,
-        sleep_after_reconnection_attempt=5,
-        print_stderr=False,
-        print_stdout=False,
-        return_error=True,
-    )
-    # In [6]: cmdinstance.sendcommand("ls")
-    # Out[6]: [[b'Code.VisualElementsManifest.xml\n', b'Code.exe\n', b'LICENSES.chromium.html\n',
-
-    # In [7]:  cmdinstance.stdin.close() # provoking a broken pipe
-
-    # All subclasses of SubProcessInteractive reconnect automatically
-    # In [8]: cmdinstance.sendcommand("ls")
-    # ------------------------------------------
-    # Traceback (most recent call last):
-    #   File "C:\ProgramData\anaconda3\envs\a0\checkpowers.py", line 411, in sendcommand
-    #     self._proc.stdin.write((cmd + f"\n{self.finish_command}\n").encode())
-    # ValueError: write to closed file
-    # ------------------------------------------
-    # Restarting ...
-    # Out[8]: [[], [], None]
-
-    # In [9]: cmdinstance.sendcommand("ls")
-    # Out[9]: [[b'Code.VisualElementsManifest.xml\n', b'Code.exe\n',
-
-    bashinstance = SubProcessInteractiveBash(
-        bash_path=r"C:\msys64\usr\bin\bash.exe",
-        convert_to_83=True,
-        daemon=True,
-        restart_when_error=True,
-        restart_tries=5,
-        sleep_after_reconnection_attempt=5,
-        print_stderr=False,
-        print_stdout=False,
-        return_error=True,
-    )
-    # In [13]: bashinstance.sendcommand("exit")
-    # ------------------------------------------
-    # Traceback (most recent call last):
-    #   File "C:\ProgramData\anaconda3\envs\a0\checkpowers.py", line 435, in sendcommand
-    #     while True:
-
-    # StopIteration
-    # ------------------------------------------
-    # Out[13]: [[b'XXXXCOMMANDSTARTXXXX\n'], [], StopIteration()]
-
-    # In [14]: bashinstance.sendcommand("ls")
-    # ------------------------------------------
-    # Traceback (most recent call last):
-    #   File "C:\ProgramData\anaconda3\envs\a0\checkpowers.py", line 414, in sendcommand
-    #     self._proc.stdin.write(cmd + b"\n" + self.finish_command_bytes + b"\n")
-    #     ^^^^^^^^^^^^^^^^^^^^^^^^
-    # OSError: [Errno 22] Invalid argument
-    # ------------------------------------------
-    # Restarting ...
-    # Out[14]: [[], [], None]
-
-    # In [15]: bashinstance.sendcommand("ls")
-    # Out[15]: [[b'Code.VisualElementsManifest.xml\n', b'Code.exe\n', b'L
-    #
-    so1, se1, error = powershellinstance.sendcommand("ls")
-    so2, se2, error = adbinstance.sendcommand("ls")
-    so3, se3, error = cmdinstance.sendcommand("ls")
-
-    print(f"{so1,so2,so3=}")
-    print(f"{se1,se2,se3=}")
-
-    so1, se1, error = powershellinstance.sendcommand("lsxx")
-    so2, se2, error = adbinstance.sendcommand("lsxx")
-    so3, se3, error = cmdinstance.sendcommand("lsxx")
-
-    print(f"{so1,so2,so3=}")
-    print(f"{se1,se2,se3=}")
-
-    so3, se3, error = bashinstance.sendcommand("ls")
-    print(f"{so3, se3, error=}")
-
-    psout, pserr, pserror = powershellinstance.sendcommand(
-        "Get-Process | Format-Table *"
-    )
-    print(psout)
+(
+    new_username_1,
+    new_password_1,
+    new_display_name1_1,
+    new_display_name2_1,
+    pidofproc_1,
+) = disable_internet_and_run(
+    exepath=r"C:\Program Files\Chromium\Application\chrome.exe"
+)
 ```
