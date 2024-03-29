@@ -70,7 +70,6 @@ def disable_internet_and_run(
     new_display_name1 = f"IO_{timestampnow}"
     new_display_name2 = f"II_{timestampnow}"
 
-    args = []
     savebafi = get_tmpfile(".ps1")
     piddata = get_tmpfile(".txt")
     pse = shutil.which("powershell.exe")
